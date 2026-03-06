@@ -19,12 +19,15 @@ import {
   Menu
 } from 'lucide-react';
 
-// Importaciones de Firebase (Solo una vez)
+// Importaciones de Firebase
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
   signInAnonymously, 
-  onAuthStateChanged 
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,     
+  signOut                         
 } from 'firebase/auth';
 import { 
   getFirestore, 
@@ -47,7 +50,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = "mi-tracker-personal"; // ID para tu base de datos personal
+const appId = "mi-tracker-personal";
 
 // --- DATOS INICIALES CON LOGO DE SINFRONTERAS AÑADIDO ---
 const initialInstitutions = [
@@ -55,7 +58,7 @@ const initialInstitutions = [
     id: 1, 
     name: 'Politécnico Grancolombiano', 
     program: 'Ingeniería Industrial', 
-    hexColor: '#003656', // Azul Poli
+    hexColor: '#003656',
     textColor: 'text-white',
     logoUrl: 'https://radcolombia.org/web/sites/default/files/archivos/instituciones/politecnico-grancolombiano/logo-pg.png' 
   },
@@ -63,7 +66,7 @@ const initialInstitutions = [
     id: 2, 
     name: 'CUN', 
     program: 'Publicidad y Mercadeo', 
-    hexColor: '#91DC00', // Verde CUN
+    hexColor: '#91DC00',
     textColor: 'text-slate-900',
     logoUrl: 'https://www.corporacionfundate.org/wp-content/uploads/2025/12/logo-cun-2.png' 
   },
@@ -71,22 +74,21 @@ const initialInstitutions = [
     id: 3, 
     name: 'Corp. SinFronteras', 
     program: 'Técnico en Marketing Digital', 
-    hexColor: '#FFCD00', // Amarillo SinFronteras
+    hexColor: '#FFCD00',
     textColor: 'text-slate-900',
-    logoUrl: 'https://corposinfronteras.edu.co/wp-content/uploads/2023/11/logo_corpo_2023.png.webp' // Logo actualizado
+    logoUrl: 'https://corposinfronteras.edu.co/wp-content/uploads/2023/11/logo_corpo_2023.png.webp'
   },
   { 
     id: 4, 
     name: 'SENA', 
     program: 'Apps en la nube', 
-    hexColor: '#00AF00', // Verde SENA
+    hexColor: '#00AF00',
     textColor: 'text-white',
     logoUrl: 'https://oficinavirtualderadicacion.sena.edu.co/oficinavirtual/Resources/logoSenaNaranja.png' 
   }
 ];
 
 const initialSubjects = [];
-
 const initialTasks = [];
 
 const InstitutionLogo = ({ url, name, className, fallbackSize = 24 }) => {
@@ -112,39 +114,52 @@ const InstitutionLogo = ({ url, name, className, fallbackSize = 24 }) => {
 };
 
 export default function App() {
+  // --- ESTADOS DE DATOS ---
   const [institutions, setInstitutions] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   
-  // Estados para manejo de Usuarios y Carga de Nube
+  // --- ESTADOS DE AUTENTICACIÓN ---
   const [user, setUser] = useState(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isRegistering, setIsRegistering] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
+  // --- ESTADOS DE NAVEGACIÓN Y UI ---
   const [currentView, setCurrentView] = useState('dashboard');
   const [showInstModal, setShowInstModal] = useState(false);
   const [showSubjectForm, setShowSubjectForm] = useState(null);
   const [showTaskForm, setShowTaskForm] = useState(null);
-  
-  // Nuevo estado para la ventana de confirmación personalizada
   const [confirmAction, setConfirmAction] = useState(null);
-  
-  // Nuevo estado para el menú móvil
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
- // --- AUTENTICACIÓN Y SINCRONIZACIÓN CON LA NUBE ---
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        // En tu app real, siempre usamos la entrada anónima directa
-        await signInAnonymously(auth);
-      } catch (error) {
-        console.error("Error de autenticación:", error);
-        setIsAuthLoading(false);
+  // --- FUNCIÓN DE AUTENTICACIÓN POR CORREO ---
+  const handleAuth = async (e) => {
+    e.preventDefault();
+    try {
+      setIsAuthLoading(true);
+      if (isRegistering) {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
       }
-    };
-    initAuth();
+    } catch (error) {
+      const msg = error.code === 'auth/invalid-credential' 
+        ? "Correo o contraseña incorrectos" 
+        : error.code === 'auth/email-already-in-use'
+        ? "Este correo ya está registrado"
+        : "Error: " + error.message;
+      alert(msg);
+      setIsAuthLoading(false);
+    }
+  };
 
+  const handleLogout = () => signOut(auth);
+
+  // --- AUTENTICACIÓN Y SINCRONIZACIÓN CON LA NUBE ---
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setIsAuthLoading(false);
@@ -232,13 +247,11 @@ export default function App() {
     const upcomingTasks = [...tasks]
       .filter(t => !t.completed)
       .sort((a, b) => {
-        // Ordenar primero por fecha y hora
         const dateA = new Date(`${a.dueDate}T${a.dueTime || '23:59'}`);
         const dateB = new Date(`${b.dueDate}T${b.dueTime || '23:59'}`);
         if (dateA.getTime() !== dateB.getTime()) {
           return dateA - dateB;
         }
-        // Si empatan en fecha, ordenar alfabéticamente por nombre de la institución
         const instA = institutions.find(i => i.id === subjects.find(s => s.id === a.subId)?.instId);
         const instB = institutions.find(i => i.id === subjects.find(s => s.id === b.subId)?.instId);
         return (instA?.name || '').localeCompare(instB?.name || '');
@@ -283,7 +296,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* NUEVA SECCIÓN: Conteo de pendientes por institución */}
         <div className="flex flex-wrap gap-3 mb-8">
           {institutions.map(inst => {
             const instSubjects = subjects.filter(s => s.instId === inst.id).map(s => s.id);
@@ -327,7 +339,6 @@ export default function App() {
                       <div>
                         <p className="font-bold text-slate-800 text-lg">{task.title}</p>
                         <div className="flex flex-wrap items-center gap-2 mt-2 text-xs font-medium">
-                          {/* Aplicando el color de texto dinámicamente como clase */}
                           <span 
                             className={`px-2.5 py-1 rounded-md shadow-sm border border-black/5 ${institution?.textColor || 'text-slate-900'}`}
                             style={{ backgroundColor: institution?.hexColor || '#eee' }}
@@ -434,7 +445,6 @@ export default function App() {
         e.preventDefault();
         if(!title || !dueDate) return;
         
-        // Calcular fecha de notificación (3 días antes de la entrega final)
         const due = new Date(`${dueDate}T00:00:00`);
         const notifDate = new Date(due);
         notifDate.setDate(notifDate.getDate() - 3);
@@ -442,10 +452,8 @@ export default function App() {
 
         let newTasks;
         if (initialData) {
-          // Actualizar tarea existente
           newTasks = tasks.map(t => t.id === initialData.id ? { ...t, title, type, dueDate, dueTime, observations, notificationDate } : t);
         } else {
-          // Crear nueva tarea
           newTasks = [...tasks, { 
             id: Date.now(), 
             subId: subjectId, 
@@ -506,8 +514,6 @@ export default function App() {
 
     return (
       <div className="space-y-8 animate-in fade-in duration-500">
-        
-        {/* CABECERA CORREGIDA: color aplicado como clase para respetar el text-white */}
         <div 
           className={`p-8 md:p-10 rounded-[2rem] shadow-xl relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-6 ${institution.textColor}`}
           style={{ 
@@ -515,7 +521,6 @@ export default function App() {
             backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.15) 0%, rgba(0,0,0,0.25) 100%)'
           }}
         >
-          {/* BOTÓN ELIMINAR en la esquina superior derecha */}
           <button 
             onClick={() => deleteInstitution(institution.id)} 
             className="absolute top-4 right-4 z-20 p-2 bg-black/10 hover:bg-rose-500 hover:text-white rounded-full backdrop-blur-sm transition-all shadow-sm border border-black/5" 
@@ -524,10 +529,8 @@ export default function App() {
             <Trash2 size={16} />
           </button>
 
-          {/* Fondo texturizado original */}
           <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] mix-blend-overlay z-0"></div>
           
-          {/* LOGO COMO MARCA DE AGUA CONDICIONAL */}
           {institution.logoUrl && (
             <div 
               className={`absolute right-0 top-0 bottom-0 w-2/3 md:w-1/2 lg:w-1/3 z-0 pointer-events-none ${institution.id === 3 ? 'opacity-40' : 'opacity-60'}`}
@@ -541,7 +544,6 @@ export default function App() {
           )}
           
           <div className="relative z-10 flex items-center gap-6 mt-2 md:mt-0 pr-8">
-            {/* El cuadro del logo se eliminó para dejar solo el texto */}
             <div>
               <span className="bg-black/10 backdrop-blur-md border border-white/10 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-widest mb-3 inline-block">
                 Institución Educativa
@@ -594,7 +596,6 @@ export default function App() {
                     <div>
                       <h4 className="font-extrabold text-xl text-slate-800 tracking-tight">{subject.name}</h4>
                       
-                      {/* DATOS DEL PROFESOR Y FICHA */}
                       {(subject.teacher || subject.groupNumber) && (
                         <div className="flex flex-wrap items-center gap-3 mt-1.5 text-sm font-medium text-slate-500">
                           {subject.teacher && <span>👨‍🏫 {subject.teacher}</span>}
@@ -608,7 +609,6 @@ export default function App() {
                         <Clock size={16} className="mr-2 text-slate-400" /> {subject.scheduleTime}
                       </div>
                     </div>
-                    {/* BOTÓN ELIMINAR MATERIA MEJORADO */}
                     <button 
                       onClick={() => deleteSubject(subject.id)} 
                       className="p-2.5 text-slate-400 hover:text-white hover:bg-rose-500 rounded-xl transition-all shadow-sm border border-transparent hover:border-rose-600"
@@ -635,12 +635,10 @@ export default function App() {
                     ) : (
                       <ul className="space-y-3 mt-4">
                         {subjectTasks.sort((a,b) => new Date(a.dueDate) - new Date(b.dueDate)).map(task => {
-                          // Si esta tarea se está editando, mostramos el formulario
                           if (editingTaskId === task.id) {
                             return <TaskForm key={task.id} subjectId={subject.id} initialData={task} onClose={() => setEditingTaskId(null)} />;
                           }
 
-                          // Lógica para el estado de alerta según días restantes
                           const todayDate = new Date();
                           todayDate.setHours(0,0,0,0);
                           const dueDateObj = new Date(`${task.dueDate}T00:00:00`);
@@ -787,19 +785,122 @@ export default function App() {
     );
   };
 
-  // Pantalla de carga mientras se sincroniza el usuario con la nube
-  if (isAuthLoading || (user && isDataLoading)) {
+  // PANTALLA DE CARGA INICIAL
+  if (isAuthLoading) {
     return (
-      <div className="h-screen bg-slate-50 flex flex-col items-center justify-center font-sans selection:bg-indigo-100 selection:text-indigo-900">
+      <div className="h-screen bg-slate-50 flex flex-col items-center justify-center font-sans">
         <div className="bg-slate-800 p-5 rounded-[2rem] text-white shadow-2xl animate-bounce mb-6 border-4 border-slate-100">
           <GraduationCap size={48} />
         </div>
-        <h2 className="text-2xl font-black text-slate-800 tracking-tight">Sincronizando Workspace</h2>
-        <p className="text-sm font-medium text-slate-500 mt-2">Cargando tu información segura en la nube...</p>
+        <h2 className="text-2xl font-black text-slate-800 tracking-tight">Iniciando StudyTracker</h2>
+        <p className="text-sm font-medium text-slate-500 mt-2">Preparando tu espacio de estudio...</p>
       </div>
     );
   }
 
+  // PANTALLA DE LOGIN/REGISTRO
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-indigo-50 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-md space-y-6 border border-slate-100">
+          <div className="text-center">
+            <div className="bg-slate-800 p-4 rounded-2xl text-white inline-block mb-4 shadow-lg">
+              <GraduationCap size={40} />
+            </div>
+            <h2 className="text-3xl font-black text-slate-800 mb-2">
+              {isRegistering ? 'Crear Cuenta' : 'Bienvenido'}
+            </h2>
+            <p className="text-slate-500 text-sm">
+              {isRegistering ? 'Regístrate para comenzar a organizar tus estudios' : 'Inicia sesión para continuar'}
+            </p>
+          </div>
+          
+          <form onSubmit={handleAuth} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Correo electrónico</label>
+              <input 
+                type="email" 
+                placeholder="tu@email.com" 
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">Contraseña</label>
+              <input 
+                type="password" 
+                placeholder="••••••••" 
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+              />
+              {isRegistering && (
+                <p className="text-xs text-slate-400 mt-1">Mínimo 6 caracteres</p>
+              )}
+            </div>
+            <button 
+              type="submit"
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 transition-all transform hover:-translate-y-0.5"
+            >
+              {isRegistering ? 'Registrarse' : 'Entrar'}
+            </button>
+          </form>
+
+          <div className="text-center pt-2">
+            <button 
+              onClick={() => setIsRegistering(!isRegistering)}
+              className="text-indigo-600 text-sm font-medium hover:text-indigo-700 hover:underline transition-all"
+            >
+              {isRegistering ? '¿Ya tienes cuenta? Inicia sesión' : '¿No tienes cuenta? Regístrate'}
+            </button>
+          </div>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200"></div>
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="px-2 bg-white text-slate-400">o continúa como</span>
+            </div>
+          </div>
+
+          <button
+            onClick={async () => {
+              try {
+                setIsAuthLoading(true);
+                await signInAnonymously(auth);
+              } catch (error) {
+                alert("Error al acceder como invitado");
+                setIsAuthLoading(false);
+              }
+            }}
+            className="w-full border border-slate-200 hover:bg-slate-50 text-slate-700 py-3 rounded-xl font-medium transition-all"
+          >
+            Invitado (sin guardar datos)
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // PANTALLA DE CARGA DE DATOS (después de login)
+  if (isDataLoading) {
+    return (
+      <div className="h-screen bg-slate-50 flex flex-col items-center justify-center font-sans">
+        <div className="bg-slate-800 p-5 rounded-[2rem] text-white shadow-2xl animate-pulse mb-6 border-4 border-slate-100">
+          <GraduationCap size={48} />
+        </div>
+        <h2 className="text-2xl font-black text-slate-800 tracking-tight">Cargando tu información</h2>
+        <p className="text-sm font-medium text-slate-500 mt-2">Tus datos están siendo sincronizados...</p>
+      </div>
+    );
+  }
+
+  // APLICACIÓN PRINCIPAL (usuario autenticado)
   return (
     <div className="h-screen bg-slate-50 font-sans flex overflow-hidden text-slate-800 selection:bg-indigo-100 selection:text-indigo-900">
       
@@ -820,7 +921,6 @@ export default function App() {
             </div>
             <h1 className="text-2xl font-black tracking-tight text-slate-900">StudyTracker</h1>
           </div>
-          {/* Botón cerrar en móvil */}
           <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden p-2 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors">
             <X size={20} />
           </button>
@@ -842,17 +942,16 @@ export default function App() {
           </div>
 
           <div>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 px-3">Mis Instituciones</p>
             <div className="space-y-1.5">
               {(() => {
-                // Función para calcular la urgencia de cada institución
                 const getInstitutionUrgency = (instId) => {
                   const instSubjects = subjects.filter(s => s.instId === instId).map(s => s.id);
                   const instTasks = tasks.filter(t => !t.completed && instSubjects.includes(t.subId));
-                  if (instTasks.length === 0) return Infinity; // Si no hay pendientes, va al final
+                  if (instTasks.length === 0) return Infinity;
                   return Math.min(...instTasks.map(t => new Date(`${t.dueDate}T${t.dueTime || '23:59'}`).getTime()));
                 };
                 
-                // Ordenar instituciones dinámicamente (y alfabéticamente si hay empate)
                 const sortedInstitutions = [...institutions].sort((a, b) => {
                   const urgencyA = getInstitutionUrgency(a.id);
                   const urgencyB = getInstitutionUrgency(b.id);
@@ -897,18 +996,29 @@ export default function App() {
             </div>
           </div>
 
-          {/* NUEVO: SECCIÓN DE USUARIO LOGUEADO */}
+          {/* SECCIÓN DE USUARIO */}
           <div className="mt-auto pt-5 border-t border-slate-100 flex-shrink-0">
-            <div className="flex items-center space-x-3 px-3 py-2.5 bg-white rounded-2xl border border-slate-100 shadow-sm">
-              <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-black shadow-inner">
-                {user?.uid ? user.uid.substring(0, 2).toUpperCase() : 'U'}
+            <div className="flex items-center justify-between space-x-3 px-3 py-2.5 bg-white rounded-2xl border border-slate-100 shadow-sm">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-black shadow-inner">
+                  {user?.email ? user.email.substring(0, 2).toUpperCase() : user?.uid ? user.uid.substring(0, 2).toUpperCase() : 'U'}
+                </div>
+                <div className="flex flex-col overflow-hidden">
+                  <span className="text-xs font-bold text-slate-800">
+                    {user?.email ? user.email.split('@')[0] : 'Usuario'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono truncate">
+                    {user?.email ? user.email : 'Modo invitado'}
+                  </span>
+                </div>
               </div>
-              <div className="flex flex-col overflow-hidden">
-                <span className="text-xs font-bold text-slate-800">Mi Sesión Segura</span>
-                <span className="text-[10px] text-slate-400 font-mono truncate" title={user?.uid}>
-                  {user?.uid ? `ID: ${user.uid.substring(0, 10)}...` : 'Invitado'}
-                </span>
-              </div>
+              <button
+                onClick={handleLogout}
+                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                title="Cerrar sesión"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              </button>
             </div>
           </div>
 
@@ -918,7 +1028,7 @@ export default function App() {
       {/* CONTENIDO PRINCIPAL */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative bg-slate-50/50">
         
-        {/* CABECERA MÓVIL (Solo visible en pantallas pequeñas) */}
+        {/* CABECERA MÓVIL */}
         <div className="md:hidden bg-white/90 backdrop-blur-md sticky top-0 z-30 px-5 py-3 border-b border-slate-200/60 flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-2">
             <div className="bg-slate-800 p-1.5 rounded-lg text-white shadow-sm">
@@ -944,7 +1054,7 @@ export default function App() {
 
       <AddInstitutionModal />
       
-      {/* MODAL DE CONFIRMACIÓN DE ELIMINACIÓN */}
+      {/* MODAL DE CONFIRMACIÓN */}
       {confirmAction && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl shadow-2xl p-6 max-w-sm w-full animate-in zoom-in-95 duration-200">
