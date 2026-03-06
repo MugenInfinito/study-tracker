@@ -139,6 +139,11 @@ export default function App() {
   const [showTaskForm, setShowTaskForm] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  
+  // --- NUEVOS ESTADOS PARA LAS VISTAS MÓVILES ---
+  const [showInstitutionsList, setShowInstitutionsList] = useState(false);
+  const [showSubjectsList, setShowSubjectsList] = useState(false);
+  const [showTasksList, setShowTasksList] = useState(false);
 
   // --- FUNCIÓN DE AUTENTICACIÓN POR CORREO ---
   const handleAuth = async (e) => {
@@ -177,13 +182,10 @@ export default function App() {
       setShowNotificationBanner(false);
       
       if (enabled) {
-        // Notificación de prueba
         new Notification('✅ Notificaciones activadas', {
           body: 'Recibirás alertas de tus tareas a 3, 2 y 1 día de la entrega',
           icon: '/vite.svg'
         });
-        
-        // Verificar tareas inmediatamente
         checkUpcomingTasks();
       }
       
@@ -203,7 +205,7 @@ export default function App() {
         icon: '/vite.svg',
         badge: '/vite.svg',
         vibrate: [200, 100, 200],
-        requireInteraction: true, // La notificación no desaparece automáticamente
+        requireInteraction: true,
         ...options
       });
 
@@ -226,7 +228,6 @@ export default function App() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Usar un Set para evitar notificaciones duplicadas en la misma sesión
     const notifiedTasks = new Set();
 
     tasks.forEach(task => {
@@ -241,10 +242,8 @@ export default function App() {
       
       const notificationKey = `${task.id}-${diffDays}`;
       
-      // Evitar notificaciones duplicadas
       if (notifiedTasks.has(notificationKey)) return;
       
-      // Notificaciones según días restantes
       if (diffDays === 3) {
         sendTaskNotification(`📅 3 días para entregar: ${task.title}`, {
           body: `${institution?.name} - ${subject?.name}\nFecha límite: ${task.dueDate}`,
@@ -281,13 +280,10 @@ export default function App() {
   useEffect(() => {
     if (!user || tasks.length === 0 || Notification.permission !== 'granted') return;
 
-    // Verificar inmediatamente
     checkUpcomingTasks();
 
-    // Verificar cada hora (3600000 ms)
     const interval = setInterval(checkUpcomingTasks, 60 * 60 * 1000);
 
-    // También verificar cuando la ventana recupera el foco
     const handleFocus = () => checkUpcomingTasks();
     window.addEventListener('focus', handleFocus);
 
@@ -386,6 +382,188 @@ export default function App() {
     saveToFirebase({ tasks: newTasks });
   };
 
+  // --- NUEVAS FUNCIONES PARA MANEJAR LAS VISTAS ---
+  const handleInstitutionsClick = () => {
+    setShowInstitutionsList(true);
+    setShowSubjectsList(false);
+    setShowTasksList(false);
+  };
+
+  const handleSubjectsClick = () => {
+    setShowSubjectsList(true);
+    setShowInstitutionsList(false);
+    setShowTasksList(false);
+  };
+
+  const handleTasksClick = () => {
+    setShowTasksList(true);
+    setShowInstitutionsList(false);
+    setShowSubjectsList(false);
+  };
+
+  const handleBackToDashboard = () => {
+    setShowInstitutionsList(false);
+    setShowSubjectsList(false);
+    setShowTasksList(false);
+  };
+
+  // --- COMPONENTE PARA LISTA DE INSTITUCIONES ---
+  const InstitutionsListView = () => (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 mb-6">
+        <button 
+          onClick={handleBackToDashboard}
+          className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+        >
+          <ChevronRight size={20} className="rotate-180" />
+        </button>
+        <h2 className="text-2xl font-bold text-slate-800">Mis Instituciones</h2>
+      </div>
+      <div className="grid gap-4">
+        {institutions.map(inst => (
+          <div
+            key={inst.id}
+            onClick={() => {
+              setCurrentView(`inst_${inst.id}`);
+              handleBackToDashboard();
+            }}
+            className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4 cursor-pointer hover:shadow-md transition-shadow"
+          >
+            <div className="w-12 h-12 rounded-full bg-white shadow-sm border border-black/5 flex items-center justify-center overflow-hidden p-1">
+              <InstitutionLogo url={inst.logoUrl} name={inst.name} className="w-full h-full" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-slate-800">{inst.name}</h3>
+              <p className="text-xs text-slate-500">{inst.program}</p>
+            </div>
+            <ChevronRight size={20} className="text-slate-400" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // --- COMPONENTE PARA LISTA DE MATERIAS ---
+  const SubjectsListView = () => (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 mb-6">
+        <button 
+          onClick={handleBackToDashboard}
+          className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+        >
+          <ChevronRight size={20} className="rotate-180" />
+        </button>
+        <h2 className="text-2xl font-bold text-slate-800">Mis Materias</h2>
+      </div>
+      <div className="grid gap-4">
+        {subjects.map(subject => {
+          const institution = institutions.find(i => i.id === subject.instId);
+          return (
+            <div
+              key={subject.id}
+              className="bg-white p-4 rounded-xl shadow-sm border border-slate-100"
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <div 
+                  className="w-3 h-3 rounded-full"
+                  style={{ backgroundColor: institution?.hexColor }}
+                ></div>
+                <span className="text-xs font-bold text-slate-500">{institution?.name}</span>
+              </div>
+              <h3 className="font-bold text-slate-800 text-lg">{subject.name}</h3>
+              {subject.teacher && (
+                <p className="text-sm text-slate-600 mt-1">👨‍🏫 {subject.teacher}</p>
+              )}
+              <div className="flex items-center gap-4 mt-3 text-xs text-slate-500">
+                <span className="flex items-center gap-1">
+                  <Calendar size={12} /> {subject.scheduleDay}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Clock size={12} /> {subject.scheduleTime}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  // --- COMPONENTE PARA LISTA DE TAREAS PENDIENTES ---
+  const TasksListView = () => {
+    const pendingTasks = tasks
+      .filter(t => !t.completed)
+      .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 mb-6">
+          <button 
+            onClick={handleBackToDashboard}
+            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+          >
+            <ChevronRight size={20} className="rotate-180" />
+          </button>
+          <h2 className="text-2xl font-bold text-slate-800">Próximos Entregables</h2>
+        </div>
+        <div className="grid gap-4">
+          {pendingTasks.map(task => {
+            const subject = subjects.find(s => s.id === task.subId);
+            const institution = institutions.find(i => i.id === subject?.instId);
+            
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            const dueDate = new Date(`${task.dueDate}T00:00:00`);
+            const diffDays = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
+            
+            let bgColor = 'bg-emerald-50';
+            if (diffDays <= 1) bgColor = 'bg-rose-50';
+            else if (diffDays <= 3) bgColor = 'bg-amber-50';
+
+            return (
+              <div key={task.id} className={`${bgColor} p-4 rounded-xl shadow-sm border border-slate-100`}>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="font-bold text-slate-800">{task.title}</h3>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span 
+                        className="text-xs px-2 py-1 rounded-full text-white"
+                        style={{ backgroundColor: institution?.hexColor }}
+                      >
+                        {institution?.name}
+                      </span>
+                      <span className="text-xs bg-slate-100 px-2 py-1 rounded-full">
+                        {subject?.name}
+                      </span>
+                    </div>
+                  </div>
+                  <button onClick={() => toggleTaskStatus(task.id)} className="text-slate-300 hover:text-green-500">
+                    <CheckCircle size={22} />
+                  </button>
+                </div>
+                <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
+                  <span className="text-xs font-medium text-slate-500 flex items-center gap-1">
+                    <Calendar size={14} /> {task.dueDate}
+                  </span>
+                  <span className="text-xs font-medium text-slate-500 flex items-center gap-1">
+                    <Clock size={14} /> {task.dueTime}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+          {pendingTasks.length === 0 && (
+            <div className="text-center py-12 text-slate-400">
+              <CheckCircle size={48} className="mx-auto mb-4 text-green-300" />
+              <p className="text-lg font-medium">¡Todo al día!</p>
+              <p className="text-sm">No hay tareas pendientes</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const DashboardView = () => {
     const upcomingTasks = [...tasks]
       .filter(t => !t.completed)
@@ -409,8 +587,12 @@ export default function App() {
           <p className="text-slate-500 mt-1 text-lg">Resumen global de tus instituciones.</p>
         </div>
         
+        {/* BOTONES FUNCIONALES - MODIFICADOS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center space-x-5">
+          <div 
+            onClick={handleInstitutionsClick}
+            className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center space-x-5 cursor-pointer hover:shadow-md transition-shadow active:scale-95"
+          >
             <div className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl">
               <Library size={28} />
             </div>
@@ -419,7 +601,11 @@ export default function App() {
               <p className="text-3xl font-black text-slate-800">{institutions.length}</p>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center space-x-5">
+          
+          <div 
+            onClick={handleSubjectsClick}
+            className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center space-x-5 cursor-pointer hover:shadow-md transition-shadow active:scale-95"
+          >
             <div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl">
               <Book size={28} />
             </div>
@@ -428,7 +614,11 @@ export default function App() {
               <p className="text-3xl font-black text-slate-800">{subjects.length}</p>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center space-x-5">
+          
+          <div 
+            onClick={handleTasksClick}
+            className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex items-center space-x-5 cursor-pointer hover:shadow-md transition-shadow active:scale-95"
+          >
             <div className="p-4 bg-rose-50 text-rose-600 rounded-2xl">
               <AlertCircle size={28} />
             </div>
@@ -439,6 +629,7 @@ export default function App() {
           </div>
         </div>
 
+        {/* EL RESTO DEL DASHBOARD SE QUEDA IGUAL */}
         <div className="flex flex-wrap gap-3 mb-8">
           {institutions.map(inst => {
             const instSubjects = subjects.filter(s => s.instId === inst.id).map(s => s.id);
@@ -1099,9 +1290,10 @@ export default function App() {
             <button 
               onClick={() => {
                 setCurrentView('dashboard');
+                handleBackToDashboard();
                 setIsMobileMenuOpen(false);
               }}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-2xl transition-all duration-200 ${currentView === 'dashboard' ? 'bg-indigo-50 text-indigo-700 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-2xl transition-all duration-200 ${currentView === 'dashboard' && !showInstitutionsList && !showSubjectsList && !showTasksList ? 'bg-indigo-50 text-indigo-700 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-50 font-medium'}`}
             >
               <LayoutDashboard size={20} className={currentView === 'dashboard' ? 'text-indigo-600' : 'text-slate-400'} />
               <span>Panel Principal</span>
@@ -1135,6 +1327,7 @@ export default function App() {
                       key={inst.id}
                       onClick={() => {
                         setCurrentView(`inst_${inst.id}`);
+                        handleBackToDashboard();
                         setIsMobileMenuOpen(false);
                       }}
                       className={`w-full flex items-center justify-between px-3 py-2.5 rounded-2xl transition-all duration-200 group ${currentView === `inst_${inst.id}` ? 'bg-slate-100 font-bold shadow-sm' : 'hover:bg-slate-50 font-medium'}`}
@@ -1213,12 +1406,20 @@ export default function App() {
       {/* CONTENIDO PRINCIPAL */}
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative bg-slate-50/50">
         
-        {/* CABECERA MÓVIL */}
+        {/* CABECERA MÓVIL - MODIFICADA */}
         <div className="md:hidden bg-white/90 backdrop-blur-md sticky top-0 z-30 px-5 py-3 border-b border-slate-200/60 flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-2">
-            <div className="bg-slate-800 p-1.5 rounded-lg text-white shadow-sm">
+            {/* ICONO QUE SIRVE PARA VOLVER AL INICIO */}
+            <button 
+              onClick={() => {
+                setCurrentView('dashboard');
+                handleBackToDashboard();
+              }}
+              className="bg-slate-800 p-1.5 rounded-lg text-white shadow-sm hover:bg-slate-700 transition-colors"
+              title="Ir al inicio"
+            >
               <GraduationCap size={20} />
-            </div>
+            </button>
             <h1 className="text-xl font-black text-slate-900 tracking-tight">StudyTracker</h1>
           </div>
           <button 
@@ -1232,10 +1433,19 @@ export default function App() {
         {/* BANNER DE NOTIFICACIONES */}
         <NotificationBanner />
 
-        {/* ÁREA DESLIZABLE */}
+        {/* ÁREA DESLIZABLE - CON LÓGICA DE VISTAS */}
         <div className="flex-grow overflow-y-auto p-4 sm:p-6 md:p-10 lg:p-12 scroll-smooth">
           <div className="max-w-5xl mx-auto pb-20 md:pb-0">
-            {currentView === 'dashboard' ? <DashboardView /> : currentInstitution && <InstitutionView institution={currentInstitution} />}
+            {/* NUEVA LÓGICA DE VISTAS PARA MÓVIL */}
+            {showInstitutionsList ? (
+              <InstitutionsListView />
+            ) : showSubjectsList ? (
+              <SubjectsListView />
+            ) : showTasksList ? (
+              <TasksListView />
+            ) : (
+              currentView === 'dashboard' ? <DashboardView /> : currentInstitution && <InstitutionView institution={currentInstitution} />
+            )}
           </div>
         </div>
       </main>
