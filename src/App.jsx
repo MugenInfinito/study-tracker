@@ -16,7 +16,8 @@ import {
   Building2,
   Image as ImageIcon,
   Pencil,
-  Menu
+  Menu,
+  Bell
 } from 'lucide-react';
 
 // Importaciones de Firebase
@@ -52,7 +53,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "mi-tracker-personal";
 
-// --- DATOS INICIALES CON LOGO DE SINFRONTERAS AÑADIDO ---
+// --- DATOS INICIALES ---
 const initialInstitutions = [
   { 
     id: 1, 
@@ -127,6 +128,10 @@ export default function App() {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isDataLoading, setIsDataLoading] = useState(true);
 
+  // --- ESTADOS DE NOTIFICACIONES ---
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [showNotificationBanner, setShowNotificationBanner] = useState(true);
+
   // --- ESTADOS DE NAVEGACIÓN Y UI ---
   const [currentView, setCurrentView] = useState('dashboard');
   const [showInstModal, setShowInstModal] = useState(false);
@@ -158,6 +163,147 @@ export default function App() {
 
   const handleLogout = () => signOut(auth);
 
+  // --- FUNCIÓN PARA SOLICITAR PERMISO DE NOTIFICACIONES ---
+  const requestNotificationPermission = async () => {
+    if (!('Notification' in window)) {
+      alert('Tu navegador no soporta notificaciones');
+      return false;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      const enabled = permission === 'granted';
+      setNotificationsEnabled(enabled);
+      setShowNotificationBanner(false);
+      
+      if (enabled) {
+        // Notificación de prueba
+        new Notification('✅ Notificaciones activadas', {
+          body: 'Recibirás alertas de tus tareas a 3, 2 y 1 día de la entrega',
+          icon: '/vite.svg'
+        });
+        
+        // Verificar tareas inmediatamente
+        checkUpcomingTasks();
+      }
+      
+      return enabled;
+    } catch (error) {
+      console.error('Error al solicitar permiso:', error);
+      return false;
+    }
+  };
+
+  // --- FUNCIÓN PARA ENVIAR NOTIFICACIÓN ---
+  const sendTaskNotification = (title, options = {}) => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return false;
+
+    try {
+      const notification = new Notification(title, {
+        icon: '/vite.svg',
+        badge: '/vite.svg',
+        vibrate: [200, 100, 200],
+        requireInteraction: true, // La notificación no desaparece automáticamente
+        ...options
+      });
+
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+
+      return true;
+    } catch (error) {
+      console.error('Error al enviar notificación:', error);
+      return false;
+    }
+  };
+
+  // --- FUNCIÓN PARA VERIFICAR TAREAS PRÓXIMAS ---
+  const checkUpcomingTasks = () => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Usar un Set para evitar notificaciones duplicadas en la misma sesión
+    const notifiedTasks = new Set();
+
+    tasks.forEach(task => {
+      if (task.completed) return;
+
+      const dueDate = new Date(`${task.dueDate}T00:00:00`);
+      const diffTime = dueDate - today;
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      const subject = subjects.find(s => s.id === task.subId);
+      const institution = institutions.find(i => i.id === subject?.instId);
+      
+      const notificationKey = `${task.id}-${diffDays}`;
+      
+      // Evitar notificaciones duplicadas
+      if (notifiedTasks.has(notificationKey)) return;
+      
+      // Notificaciones según días restantes
+      if (diffDays === 3) {
+        sendTaskNotification(`📅 3 días para entregar: ${task.title}`, {
+          body: `${institution?.name} - ${subject?.name}\nFecha límite: ${task.dueDate}`,
+          tag: `task-${task.id}-3`,
+          renotify: true
+        });
+        notifiedTasks.add(notificationKey);
+      } else if (diffDays === 2) {
+        sendTaskNotification(`⚠️ 2 días para entregar: ${task.title}`, {
+          body: `${institution?.name} - ${subject?.name}\n¡Prepárate! Quedan 2 días`,
+          tag: `task-${task.id}-2`,
+          renotify: true
+        });
+        notifiedTasks.add(notificationKey);
+      } else if (diffDays === 1) {
+        sendTaskNotification(`🔥 ¡MAÑANA entrega: ${task.title}!`, {
+          body: `${institution?.name} - ${subject?.name}\nUltimo día para preparar`,
+          tag: `task-${task.id}-1`,
+          renotify: true
+        });
+        notifiedTasks.add(notificationKey);
+      } else if (diffDays === 0) {
+        sendTaskNotification(`⏰ ¡HOY es la entrega! ${task.title}`, {
+          body: `Fecha límite: ${task.dueDate} a las ${task.dueTime || '23:59'}`,
+          tag: `task-${task.id}-0`,
+          renotify: true
+        });
+        notifiedTasks.add(notificationKey);
+      }
+    });
+  };
+
+  // --- EFECTO PARA VERIFICAR NOTIFICACIONES PERIÓDICAMENTE ---
+  useEffect(() => {
+    if (!user || tasks.length === 0 || Notification.permission !== 'granted') return;
+
+    // Verificar inmediatamente
+    checkUpcomingTasks();
+
+    // Verificar cada hora (3600000 ms)
+    const interval = setInterval(checkUpcomingTasks, 60 * 60 * 1000);
+
+    // También verificar cuando la ventana recupera el foco
+    const handleFocus = () => checkUpcomingTasks();
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [tasks, subjects, institutions, user]);
+
+  // --- VERIFICAR ESTADO DE NOTIFICACIONES AL INICIAR ---
+  useEffect(() => {
+    if (!('Notification' in window)) return;
+    setNotificationsEnabled(Notification.permission === 'granted');
+    setShowNotificationBanner(Notification.permission === 'default');
+  }, []);
+
   // --- AUTENTICACIÓN Y SINCRONIZACIÓN CON LA NUBE ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -170,7 +316,6 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     
-    // Conectar a la base de datos única de este usuario
     const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'studyData', 'main');
     
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
@@ -180,7 +325,6 @@ export default function App() {
         setSubjects(data.subjects || []);
         setTasks(data.tasks || []);
       } else {
-        // Inicializar base de datos si el usuario es nuevo
         setDoc(docRef, {
           institutions: initialInstitutions,
           subjects: initialSubjects,
@@ -200,7 +344,6 @@ export default function App() {
     ? institutions.find(i => i.id === parseInt(currentView.split('_')[1])) 
     : null;
     
-  // Función global para guardar en la nube
   const saveToFirebase = async (updates) => {
     if (!user) return;
     const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'studyData', 'main');
@@ -499,7 +642,7 @@ export default function App() {
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-slate-500 mb-1">Observaciones</label>
               <textarea placeholder="Detalles adicionales, links, instrucciones..." className="border border-slate-200 p-2 rounded-lg w-full outline-none focus:border-slate-400 resize-none h-16" value={observations} onChange={e => setObservations(e.target.value)} />
-              <p className="text-[10px] text-slate-400 mt-1">* Se generará una alerta de estudio 3 días antes de la fecha final.</p>
+              <p className="text-[10px] text-slate-400 mt-1">* Recibirás notificaciones 3, 2 y 1 día antes de la entrega.</p>
             </div>
           </div>
           <div className="flex justify-end space-x-2">
@@ -785,6 +928,30 @@ export default function App() {
     );
   };
 
+  // BANNER DE NOTIFICACIONES
+  const NotificationBanner = () => {
+    if (!showNotificationBanner || notificationsEnabled || !user) return null;
+
+    return (
+      <div className="bg-indigo-50 border-l-4 border-indigo-500 p-4 mb-4 rounded-lg mx-4 sm:mx-6 md:mx-10 animate-in slide-in-from-top duration-300">
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center">
+            <Bell className="text-indigo-600 mr-3" size={20} />
+            <span className="text-indigo-800 text-sm font-medium">
+              🔔 Activa las notificaciones para recibir alertas de tus entregas (3, 2 y 1 día antes)
+            </span>
+          </div>
+          <button
+            onClick={requestNotificationPermission}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow-md hover:shadow-lg whitespace-nowrap"
+          >
+            Activar Notificaciones
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // PANTALLA DE CARGA INICIAL
   if (isAuthLoading) {
     return (
@@ -996,7 +1163,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* SECCIÓN DE USUARIO */}
+          {/* SECCIÓN DE USUARIO CON NOTIFICACIONES */}
           <div className="mt-auto pt-5 border-t border-slate-100 flex-shrink-0">
             <div className="flex items-center justify-between space-x-3 px-3 py-2.5 bg-white rounded-2xl border border-slate-100 shadow-sm">
               <div className="flex items-center space-x-3">
@@ -1012,13 +1179,31 @@ export default function App() {
                   </span>
                 </div>
               </div>
-              <button
-                onClick={handleLogout}
-                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
-                title="Cerrar sesión"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-              </button>
+              <div className="flex">
+                {/* Botón de notificaciones */}
+                {!notificationsEnabled && Notification?.permission !== 'denied' && (
+                  <button
+                    onClick={requestNotificationPermission}
+                    className="p-2 text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 rounded-lg transition-colors mr-1"
+                    title="Activar notificaciones"
+                  >
+                    <Bell size={18} />
+                  </button>
+                )}
+                {notificationsEnabled && (
+                  <div className="p-2 text-emerald-500 mr-1" title="Notificaciones activadas">
+                    <Bell size={18} />
+                  </div>
+                )}
+                {/* Botón de logout */}
+                <button
+                  onClick={handleLogout}
+                  className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                  title="Cerrar sesión"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1043,6 +1228,9 @@ export default function App() {
             <Menu size={24} />
           </button>
         </div>
+
+        {/* BANNER DE NOTIFICACIONES */}
+        <NotificationBanner />
 
         {/* ÁREA DESLIZABLE */}
         <div className="flex-grow overflow-y-auto p-4 sm:p-6 md:p-10 lg:p-12 scroll-smooth">
